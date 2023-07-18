@@ -33,8 +33,46 @@ final class LocalAccountRefresher {
 			completion?()
 			return
 		}
-		self.completion = completion
-		downloadSession.downloadObjects(feeds as NSSet)
+        
+        let redditFeeds = feeds.filter { feed in
+            if let url = feed.homePageURL {
+                return url.contains("reddit.com")
+            }
+            else {
+                return false
+            }
+        }
+        let otherFeeds = feeds.subtracting(redditFeeds)
+        
+        //Download non reddit feeds first
+        self.downloadSession.downloadObjects(otherFeeds as NSSet)
+        
+        //Download reddit feeds if they exist
+        if redditFeeds.count > 0 {
+            
+            batchFeeds(feedList: Array(redditFeeds), batchSize: 100, delay: 601) //100 requests per 10 minutes (601 seconds).
+            
+            func batchFeeds(feedList: [Feed], batchSize: Int, delay: Int, index: Int = 0) {
+                guard feedList.count > 0 else { return }
+                
+                print(feedList.count, index)
+                
+                let batch = Set(feedList[0..<min(feedList.count, batchSize)])
+                let nextList = Array(feedList.dropFirst(batchSize))
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + Double(delay * index)) {
+                    self.downloadSession.downloadObjects(batch as NSSet)
+                    
+                    //Only run the completion on the last batch as on completion it closes the group in LocalAccountDelegate.swift
+                    if nextList.count == 0 { self.completion = completion }
+                }
+                
+                batchFeeds(feedList: nextList, batchSize: batchSize, delay: delay, index: index + 1)
+            }
+        }
+        else {
+             self.completion = completion
+        }
 	}
 	
 	public func suspend() {
